@@ -6,18 +6,23 @@ function App() {
 
   const [transactions, setTransactions] = useState([]);
   const [filteredTransactions, setFilteredTransactions] = useState([]);
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Food");
-  const [type, setType] = useState("expense");
-  const [date, setDate] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [formData, setFormData] = useState({
+    amount: "",
+    description: "",
+    category: "Food",
+    type: "expense",
+    date: "",
+  });
+  const [editId, setEditId] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
+  const [dateRange, setDateRange] = useState({
+    startDate: "",
+    endDate: "",
+  });
 
   useEffect(() => {
-    const savedTransactions = JSON.parse(localStorage.getItem("transactions")) || [];
-    setTransactions(savedTransactions);
+    const saved = JSON.parse(localStorage.getItem("transactions")) || [];
+    setTransactions(saved);
   }, []);
 
   useEffect(() => {
@@ -26,68 +31,94 @@ function App() {
 
   const calculateBalance = () => {
     const totalIncome = transactions
-      .filter((transaction) => transaction.type === "income")
-      .reduce((acc, transaction) => acc + transaction.amount, 0);
-
+      .filter((t) => t.type === "income")
+      .reduce((acc, t) => acc + t.amount, 0);
     const totalExpense = transactions
-      .filter((transaction) => transaction.type === "expense")
-      .reduce((acc, transaction) => acc + transaction.amount, 0);
-
+      .filter((t) => t.type === "expense")
+      .reduce((acc, t) => acc + t.amount, 0);
     return initialAmount + totalIncome - totalExpense;
   };
 
   const handleAddTransaction = (e) => {
     e.preventDefault();
-
     const today = new Date().toISOString().split("T")[0];
-    if (date > today) {
+    if (formData.date > today) {
       alert("You cannot enter a future date.");
       return;
     }
 
-    if (type === "expense" && parseFloat(amount) > calculateBalance()) {
+    if (
+      formData.type === "expense" &&
+      parseFloat(formData.amount) > calculateBalance() &&
+      editId === null
+    ) {
       alert("You don't have enough money!");
       return;
     }
 
     const newTransaction = {
-      id: Date.now(),
-      type,
-      amount: parseFloat(amount),
-      description,
-      category,
-      date,
+      id: editId || Date.now(),
+      ...formData,
+      amount: parseFloat(formData.amount),
     };
 
-    setTransactions((prev) => [...prev, newTransaction]);
-    setAmount("");
-    setDescription("");
-    setCategory("Food");
-    setType("expense");
-    setDate("");
+    if (editId) {
+      setTransactions((prev) =>
+        prev.map((t) => (t.id === editId ? newTransaction : t))
+      );
+      setEditId(null);
+    } else {
+      setTransactions((prev) => [...prev, newTransaction]);
+    }
+
+    setFormData({
+      amount: "",
+      description: "",
+      category: "Food",
+      type: "expense",
+      date: "",
+    });
+  };
+
+  const handleEdit = (transaction) => {
+    setFormData({
+      amount: transaction.amount,
+      description: transaction.description,
+      category: transaction.category,
+      type: transaction.type,
+      date: transaction.date,
+    });
+    setEditId(transaction.id);
+  };
+
+  const handleDelete = (id) => {
+    const confirmDelete = window.confirm("Delete this transaction?");
+    if (confirmDelete) {
+      const updated = transactions.filter((t) => t.id !== id);
+      setTransactions(updated);
+
+
+      if (activeFilter !== "all") {
+        setFilteredTransactions(updated.filter((t) => t.type === activeFilter));
+      }
+    }
   };
 
   const handleDownloadCSV = () => {
     const data = filteredTransactions.length ? filteredTransactions : transactions;
+    const csvRows = [
+      ["ID", "Type", "Amount", "Description", "Category", "Date"].join(","),
+    ];
 
-    const csvRows = [];
-    const headers = ["ID", "Type", "Amount", "Description", "Category", "Date"];
-    csvRows.push(headers.join(","));
-
-    data.forEach((transaction) => {
-      const row = [
-        transaction.id,
-        transaction.type,
-        transaction.amount,
-        `"${transaction.description}"`,
-        transaction.category,
-        transaction.date,
-      ];
-      csvRows.push(row.join(","));
+    data.forEach((t) => {
+      csvRows.push(
+        [t.id, t.type, t.amount, `"${t.description}"`, t.category, t.date].join(",")
+      );
     });
 
-    const csvString = csvRows.join("\n");
-    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([csvRows.join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
 
     saveAs(blob, "transactions.csv");
   };
@@ -96,10 +127,10 @@ function App() {
     setActiveFilter(filterType);
     switch (filterType) {
       case "income":
-        setFilteredTransactions(transactions.filter(t => t.type === "income"));
+        setFilteredTransactions(transactions.filter((t) => t.type === "income"));
         break;
       case "expense":
-        setFilteredTransactions(transactions.filter(t => t.type === "expense"));
+        setFilteredTransactions(transactions.filter((t) => t.type === "expense"));
         break;
       case "all":
         setFilteredTransactions([]);
@@ -109,86 +140,111 @@ function App() {
     }
   };
 
-  const displayedTransactions = filteredTransactions.length ? filteredTransactions : transactions;
+  const applyDateRangeFilter = () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
+      setFilteredTransactions(transactions);
+    } else {
+      const filtered = transactions.filter((t) => {
+        const transactionDate = new Date(t.date);
+        const startDate = new Date(dateRange.startDate);
+        const endDate = new Date(dateRange.endDate);
+        return transactionDate >= startDate && transactionDate <= endDate;
+      });
+      setFilteredTransactions(filtered);
+    }
+  };
+
+  const displayedTransactions = filteredTransactions.length
+    ? filteredTransactions
+    : transactions;
+
+  const totalIncome = transactions
+    .filter((t) => t.type === "income")
+    .reduce((acc, t) => acc + t.amount, 0);
+
+  const totalExpense = transactions
+    .filter((t) => t.type === "expense")
+    .reduce((acc, t) => acc + t.amount, 0);
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-6xl mx-auto bg-white p-8 rounded-xl shadow-lg">
         <header className="mb-10 text-center">
-          <h1 className="text-4xl font-semibold text-indigo-800 mb-2">Cash Flow Tracker</h1>
-          <p className="text-lg text-gray-600">Track your income and expenses with ease</p>
+          <h1 className="text-4xl font-semibold text-indigo-800 mb-2">
+            Cash Flow Tracker
+          </h1>
+          <p className="text-lg text-gray-600">
+            Track your income and expenses with ease
+          </p>
         </header>
 
-        {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
           <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl p-6 shadow-lg text-white">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium">Total Balance</p>
-                <h3 className="text-3xl font-bold mt-1">${calculateBalance().toLocaleString()}</h3>
-              </div>
-            </div>
+            <p className="text-sm font-medium">Total Balance</p>
+            <h3 className="text-3xl font-bold mt-1">
+              ${calculateBalance().toLocaleString()}
+            </h3>
           </div>
 
+         
+      
+
           <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-xl p-6 shadow-lg text-white">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium">Total Expense</p>
-                <h3 className="text-3xl font-bold mt-1">
-                  -${transactions
-                    .filter(t => t.type === "expense")
-                    .reduce((acc, t) => acc + t.amount, 0)
-                    .toLocaleString()}
-                </h3>
-              </div>
-            </div>
+            <p className="text-sm font-medium">Total Expense</p>
+            <h3 className="text-3xl font-bold mt-1">
+              -${totalExpense.toLocaleString()}
+            </h3>
           </div>
         </div>
 
+
+
+
         <div className="bg-gray-50 p-8 rounded-xl mb-10 border border-gray-200 shadow-sm">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Add New Transaction</h2>
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">
+            {editId ? "Edit Transaction" : "Add New Transaction"}
+          </h2>
           <form onSubmit={handleAddTransaction} className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="amount" className="text-sm font-medium text-gray-700">Amount</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">$</div>
-                  <input
-                    type="number"
-                    id="amount"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.00"
-                    required
-                    step="0.01"
-                    min="0"
-                    className="block w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
+                <label className="text-sm font-medium text-gray-700">Amount</label>
+                <input
+                  type="number"
+                  value={formData.amount}
+                  onChange={(e) =>
+                    setFormData({ ...formData, amount: e.target.value })
+                  }
+                  placeholder="0.00"
+                  required
+                  step="0.01"
+                  min="0"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                />
               </div>
-
               <div>
-                <label htmlFor="description" className="text-sm font-medium text-gray-700">Description</label>
+                <label className="text-sm font-medium text-gray-700">Description</label>
                 <input
                   type="text"
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                   placeholder="What's this for?"
                   required
-                  className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
               <div>
-                <label htmlFor="category" className="text-sm font-medium text-gray-700">Category</label>
+                <label className="text-sm font-medium text-gray-700">Category</label>
                 <select
-                  id="category"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value })
+                  }
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 >
                   <option value="Food">Food</option>
                   <option value="Entertainment">Entertainment</option>
@@ -200,12 +256,13 @@ function App() {
               </div>
 
               <div>
-                <label htmlFor="type" className="text-sm font-medium text-gray-700">Type</label>
+                <label className="text-sm font-medium text-gray-700">Type</label>
                 <select
-                  id="type"
-                  value={type}
-                  onChange={(e) => setType(e.target.value)}
-                  className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  value={formData.type}
+                  onChange={(e) =>
+                    setFormData({ ...formData, type: e.target.value })
+                  }
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 >
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
@@ -213,85 +270,119 @@ function App() {
               </div>
 
               <div>
-                <label htmlFor="date" className="text-sm font-medium text-gray-700">Date</label>
+                <label className="text-sm font-medium text-gray-700">Date</label>
                 <input
                   type="date"
-                  id="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  value={formData.date}
+                  onChange={(e) =>
+                    setFormData({ ...formData, date: e.target.value })
+                  }
                   required
                   max={new Date().toISOString().split("T")[0]}
-                  className="block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg"
                 />
               </div>
             </div>
 
-            <div className="pt-4">
-              <button
-                type="submit"
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                Add Transaction
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg"
+            >
+              {editId ? "Update Transaction" : "Add Transaction"}
+            </button>
           </form>
         </div>
 
-        {/* Transaction Filters */}
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Transaction Filters</h2>
-          <div className="flex flex-wrap gap-4 mb-6">
-            <button
-              onClick={() => applyQuickFilter("all")}
-              className={`px-6 py-3 rounded-lg text-sm font-medium ${activeFilter === "all" ? 'bg-indigo-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-800'}`}
-            >
-              All Transactions
-            </button>
-            <button
-              onClick={() => applyQuickFilter("income")}
-              className={`px-6 py-3 rounded-lg text-sm font-medium ${activeFilter === "income" ? 'bg-green-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-800'}`}
-            >
-              Income Only
-            </button>
-            <button
-              onClick={() => applyQuickFilter("expense")}
-              className={`px-6 py-3 rounded-lg text-sm font-medium ${activeFilter === "expense" ? 'bg-red-600 text-white' : 'bg-gray-300 hover:bg-gray-400 text-gray-800'}`}
-            >
-              Expense Only
-            </button>
-            <div className="flex space-x-4 items-center">
+
+
+
+
+                <div className="mb-10">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">
+            Filter by Date Range
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Start Date</label>
+              <input
+                type="date"
+                value={dateRange.startDate}
+                onChange={(e) =>
+                  setDateRange({ ...dateRange, startDate: e.target.value })
+                }
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700">End Date</label>
+              <input
+                type="date"
+                value={dateRange.endDate}
+                onChange={(e) =>
+                  setDateRange({ ...dateRange, endDate: e.target.value })
+                }
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+              />
+            </div>
+
+            <div className="flex items-end">
               <button
-                onClick={() => setStartDate("") & setEndDate("")}
-                className="px-6 py-3 rounded-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+                onClick={applyDateRangeFilter}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg w-full sm:w-auto"
               >
-                Clear Filters
+                Apply Date Range
               </button>
             </div>
           </div>
         </div>
 
-        {/* Transactions List */}
+
         <div>
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">All Transactions</h2>
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">
+            All Transactions
+          </h2>
           <div className="overflow-x-auto">
             <table className="min-w-full table-auto bg-white rounded-lg shadow-sm overflow-hidden">
               <thead>
                 <tr className="bg-gray-100">
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-600">Amount</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-600">Category</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-600">Type</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-600">Date</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-600">Description</th>
+                  <th className="px-4 py-2 text-left">Amount</th>
+                  <th className="px-4 py-2 text-left">Category</th>
+                  <th className="px-4 py-2 text-left">Type</th>
+                  <th className="px-4 py-2 text-left">Date</th>
+                  <th className="px-4 py-2 text-left">Description</th>
+                  <th className="px-4 py-2 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {displayedTransactions.map(transaction => (
-                  <tr key={transaction.id} className="border-t">
-                    <td className="px-6 py-4 text-sm text-gray-800">{transaction.amount.toFixed(2)}</td>
-                    <td className="px-6 py-4 text-sm text-gray-800">{transaction.category}</td>
-                    <td className="px-6 py-4 text-sm text-gray-800">{transaction.type}</td>
-                    <td className="px-6 py-4 text-sm text-gray-800">{transaction.date}</td>
-                    <td className="px-6 py-4 text-sm text-gray-800">{transaction.description}</td>
+                {displayedTransactions.map((t) => (
+                  <tr
+                    key={t.id}
+                    className={`border-t ${
+                      t.type === "income"
+                        ? "bg-green-50 text-green-700"
+                        : "bg-red-50 text-red-700"
+                    }`}
+                  >
+                    <td className="px-4 py-2">${t.amount.toFixed(2)}</td>
+                    <td className="px-4 py-2">{t.category}</td>
+                    <td className="px-4 py-2 capitalize">{t.type}</td>
+                    <td className="px-4 py-2">{t.date}</td>
+                    <td className="px-4 py-2">{t.description}</td>
+                    <td className="px-4 py-2 space-x-2 text-center">
+                      <button
+                        onClick={() => handleEdit(t)}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(t.id)}
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -299,7 +390,6 @@ function App() {
           </div>
         </div>
 
-        {/* Download CSV Button */}
         <div className="text-center mt-6">
           <button
             onClick={handleDownloadCSV}
